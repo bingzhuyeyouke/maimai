@@ -25,5 +25,8 @@ debug_screenshots/
 # 帖子图片（用户原创内容，不提交）
 posts/images/
 
+# 闪电观察者下载的图片（临时，不提交）
+posts/shandian_images/
+
 # macOS
 .DS_Store

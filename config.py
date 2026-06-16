@@ -26,6 +26,16 @@ class Settings(BaseSettings):
         description="脉脉发帖间隔基准（秒），实际会随机±30秒抖动防检测，默认150秒≈2.5分钟",
     )
 
+    # ---------- 闪电观察者 ----------
+    shandian_post_interval: int = Field(
+        default=90,
+        description="闪电观察者发帖间隔基准（秒），±30秒抖动，默认90秒≈1-2分钟",
+    )
+    pexels_api_key: str = Field(
+        default="",
+        description="Pexels API Key（免费申请：https://www.pexels.com/api/）",
+    )
+
     # ---------- AI 内容生成 ----------
     ai_api_key: str = Field(default="", description="AI 接口密钥")
     ai_model: str = Field(default="gpt-4o-mini", description="AI 模型名称")
