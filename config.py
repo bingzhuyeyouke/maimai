@@ -37,6 +37,24 @@ class Settings(BaseSettings):
     # ---------- 日志 ----------
     log_level: str = Field(default="INFO", description="日志级别")
 
+    # ---------- 飞书表格 ----------
+    feishu_app_id: str = Field(default="", description="飞书应用 app_id")
+    feishu_app_secret: str = Field(default="", description="飞书应用 app_secret")
+    feishu_spreadsheet_token: str = Field(
+        default="",
+        description="飞书多维表格 token（bitable app_token，或 Wiki 节点 token 会自动解析）",
+    )
+    feishu_sheet_id: str = Field(
+        default="",
+        description="飞书多维表格 table_id（留空则自动获取第一个表）",
+    )
+
+    # ---------- 脉脉发帖 ----------
+    maimai_post_interval: int = Field(
+        default=180,
+        description="脉脉发帖间隔（秒），默认3分钟",
+    )
+
     @property
     def db_full_path(self) -> Path:
         """数据库完整路径（基于项目根目录）"""
