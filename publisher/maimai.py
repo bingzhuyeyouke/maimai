@@ -185,9 +185,29 @@ class MaimaiPoster:
         # 填入正文
         self._fill_content(page, content)
 
-        # 添加话题
+        # 添加话题（带刷新重试）
         if topic:
-            self._add_topic(page, topic)
+            topic_ok = self._add_topic(page, topic)
+            if not topic_ok:
+                # 刷新页面后重试（刷新可修复弹窗不渲染的问题）
+                for retry in range(3):
+                    logger.info(f"  刷新页面重试添加话题 (第{retry + 1}次)...")
+                    page.keyboard.press("Escape")
+                    time.sleep(1)
+                    page.reload(wait_until="domcontentloaded", timeout=15000)
+                    page.bring_to_front()
+                    time.sleep(5)
+                    # 重新填入标题和正文
+                    if title:
+                        self._fill_title(page, title)
+                    self._fill_content(page, content)
+                    # 再试话题
+                    topic_ok = self._add_topic(page, topic)
+                    if topic_ok:
+                        break
+                if not topic_ok:
+                    logger.error(f"  ❌ 添加话题失败: {topic}，跳过此篇")
+                    return False
 
         # 上传图片
         if image_paths:
@@ -208,6 +228,9 @@ class MaimaiPoster:
         logger.info("  导航回社区首页，准备下一篇...")
         try:
             page.goto(MAIMAI_HOME_URL, wait_until="domcontentloaded", timeout=15000)
+            # 刷新页面确保DOM状态干净（否则弹窗可能不渲染）
+            page.reload(wait_until="domcontentloaded", timeout=15000)
+            page.bring_to_front()
             time.sleep(3)
         except Exception:
             logger.warning("  ⚠️ 导航回首页失败，下一篇会自动重试")
@@ -236,6 +259,9 @@ class MaimaiPoster:
                             && rect2 && rect2.width > 50;
                     }''')
                     if editor_ok:
+                        pg.bring_to_front()
+                        pg.reload(wait_until="domcontentloaded", timeout=15000)
+                        time.sleep(3)
                         logger.success("✓ 发帖页已打开（复用现有标签页）")
                         return pg
                     else:
@@ -251,6 +277,7 @@ class MaimaiPoster:
                                 && contentEditor.getBoundingClientRect().width > 50;
                         }''')
                         if editor_ok2:
+                            pg.bring_to_front()
                             logger.success("✓ 发帖页已打开（导航后编辑器就绪）")
                             return pg
             except Exception:
@@ -338,7 +365,10 @@ class MaimaiPoster:
         time.sleep(1)
 
     def _fill_title(self, page: Page, title: str):
-        """填入标题"""
+        """填入标题，标题为空则跳过"""
+        if not title or not title.strip():
+            logger.info("  标题为空，跳过填入")
+            return
         logger.info(f"填入标题: {title[:20]}...")
         title = title[:20]
 
@@ -450,16 +480,16 @@ class MaimaiPoster:
 
     def _add_topic(self, page: Page, topic: str):
         """
-        添加话题 —— 正确流程：
-          1. 点击工具栏中的「添加话题」按钮（class 含 cursor-pointer 的那个，不是容器）
-          2. 等待弹出面板出现，面板内有搜索输入框
-          3. 在搜索框中输入话题名称
-          4. 点击搜索结果中的第一个匹配项
+        添加话题 —— 带重试机制：
+          1. 点击「添加话题」按钮
+          2. 等待弹出面板（等待最多10秒）
+          3. 在搜索框输入话题名称
+          4. 点击搜索结果
+          如果搜索框不出，返回 False 让调用方刷新页面重试
         """
         logger.info(f"添加话题: {topic}")
 
         # 1. 点击「添加话题」按钮
-        #    关键：要点击 class 含 cursor-pointer 的小按钮，不是整个工具栏容器
         clicked = page.evaluate('''() => {
             const all = document.querySelectorAll('div, span, label');
             let best = null;
@@ -471,10 +501,8 @@ class MaimaiPoster:
                 const cls = (el.className || '').toString();
                 const area = rect.width * rect.height;
 
-                // 匹配条件：文字含"添加话题"，在工具栏区域(y>250)，有 cursor-pointer
                 if (t.includes('添加话题') && rect.y > 250 && rect.width > 0
                     && cls.includes('cursor-pointer')) {
-                    // 选最小的匹配元素（最精确的按钮）
                     if (area < bestArea) {
                         bestArea = area;
                         best = el;
@@ -487,7 +515,6 @@ class MaimaiPoster:
                 return best.textContent.trim();
             }
 
-            // 备用：如果没有 cursor-pointer，选最小且文字精确匹配的
             for (const el of all) {
                 const t = (el.textContent || '').trim();
                 const rect = el.getBoundingClientRect();
@@ -502,41 +529,55 @@ class MaimaiPoster:
 
         if not clicked:
             logger.warning("  ⚠️ 未找到'添加话题'按钮")
-            return
+            return False
 
         logger.info(f"  已点击添加话题按钮: {clicked}")
-        time.sleep(2)
+        time.sleep(3)
 
-        # 2. 在弹出面板的搜索框中输入话题名称
-        #    弹出面板的搜索框：y > 250 的 input[type=search]（排除顶部导航栏 y < 100）
+        # 2. 在弹出面板的搜索框中输入话题名称（等待最多10秒）
+        # 策略：优先匹配 input[type="search"]（弹出面板），y>100 排除顶部导航栏(y≈24)
+        #       备用 input[type="text"]，y>250 排除标题输入框(y≈161)
         popup_search = None
-        for inp in page.locator('input[type="search"], input[type="text"]').all():
-            try:
-                box = inp.bounding_box()
-                if box and box['y'] > 250 and box['width'] > 50:
-                    popup_search = inp
-                    break
-            except Exception:
-                continue
+        for _ in range(10):
+            # 优先：type=search 且 y>100（排除顶部导航搜索栏）
+            for inp in page.locator('input[type="search"]').all():
+                try:
+                    box = inp.bounding_box()
+                    if box and box['y'] > 100 and box['width'] > 50:
+                        popup_search = inp
+                        break
+                except Exception:
+                    continue
+            # 备用：type=text 且 y>250（排除标题输入框）
+            if not popup_search:
+                for inp in page.locator('input[type="text"]').all():
+                    try:
+                        box = inp.bounding_box()
+                        if box and box['y'] > 250 and box['width'] > 50:
+                            popup_search = inp
+                            break
+                    except Exception:
+                        continue
+            if popup_search:
+                break
+            time.sleep(1)
 
-        if popup_search:
-            popup_search.click()
-            time.sleep(0.3)
-            popup_search.fill(topic)
-            logger.info(f"  已在弹出搜索框输入: {topic}")
-        else:
-            logger.warning("  ⚠️ 未找到弹出面板的搜索框")
-            return
+        if not popup_search:
+            logger.warning("  ⚠️ 搜索框未出现")
+            return False
 
+        popup_search.click()
+        time.sleep(0.5)
+        popup_search.fill(topic)
+        logger.info(f"  已在弹出搜索框输入: {topic}")
         time.sleep(2)
 
         # 3. 点击搜索结果
-        #    优先选择话题名在开头、无前缀的行（最精确）
         selected = page.evaluate('''(topic) => {
             const all = document.querySelectorAll('div');
-            let exactRow = null;       // 话题名在文本开头的行
+            let exactRow = null;
             let exactLen = Infinity;
-            let prefixRow = null;      // 话题名在文本中间的行（有前缀如"互联网新鲜事，"）
+            let prefixRow = null;
             let prefixLen = Infinity;
 
             for (const el of all) {
@@ -564,15 +605,13 @@ class MaimaiPoster:
 
         if selected:
             logger.success(f"  ✓ 话题已点击: {selected.get('text', topic)}")
+            time.sleep(2)
+            page.keyboard.press("Escape")
+            time.sleep(1)
+            return True
         else:
-            logger.warning(f"  ⚠️ 未找到话题搜索结果: {topic}，可能需要手动选择")
-
-        # 等待话题添加生效，弹窗关闭
-        time.sleep(2)
-
-        # 确保弹窗关闭（按 Escape 关闭可能残留的搜索面板）
-        page.keyboard.press("Escape")
-        time.sleep(1)
+            logger.warning("  ⚠️ 搜索结果中未找到话题")
+            return False
 
     def _upload_images(self, page: Page, image_paths: List[str]):
         """

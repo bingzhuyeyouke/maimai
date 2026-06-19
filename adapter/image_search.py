@@ -183,13 +183,15 @@ def download_image(url: str, save_path: str) -> Optional[str]:
 
 # ========== 组合方法 ==========
 
-def search_and_download(query: str, save_dir: str) -> Optional[str]:
+def search_and_download(query: str, save_dir: str, skip_web: bool = False, pexels_query: str = None) -> Optional[str]:
     """
     搜索并下载一张图片（优先网页搜图，Pexels作备用）
 
     参数:
         query: 搜索关键词（话题名称）
         save_dir: 保存目录
+        skip_web: 跳过网页搜图（避免Playwright事件循环冲突）
+        pexels_query: Pexels专用搜索词（英文），不传则用query
 
     返回:
         本地文件路径或 None
@@ -198,12 +200,15 @@ def search_and_download(query: str, save_dir: str) -> Optional[str]:
     safe_name = re.sub(r'[^\w一-鿿]', '_', query)[:30] + '.jpg'
     save_path = str(Path(save_dir) / safe_name)
 
-    # 方式1：网页搜图（百度图片）
-    img_url = search_image_web(query)
+    # 方式1：网页搜图（百度图片）— 可跳过避免Playwright冲突
+    img_url = None
+    if not skip_web:
+        img_url = search_image_web(query)
 
-    # 方式2：Pexels API 备用
+    # 方式2：Pexels API 备用（或主用）
     if not img_url:
-        img_url = search_image_pexels(query)
+        pexels_q = pexels_query or query
+        img_url = search_image_pexels(pexels_q)
 
     if not img_url:
         logger.warning(f"  ⚠️ 未找到图片: {query}")

@@ -42,7 +42,6 @@
 import re
 import sys
 import time
-import shutil
 from pathlib import Path
 from typing import List, Dict, Optional
 from loguru import logger
@@ -155,7 +154,7 @@ def parse_shandian(text: str) -> List[Dict]:
 
 # ========== 图片搜索与配对 ==========
 
-def search_topic_images(posts: List[Dict], skip_image: bool = False) -> Dict[str, List[str]]:
+def search_topic_images(posts: List[Dict], skip_image: bool = False, pexels_only: bool = False) -> Dict[str, List[str]]:
     """
     为每个话题搜索1张配图，同话题的2篇文章共享
 
@@ -173,18 +172,41 @@ def search_topic_images(posts: List[Dict], skip_image: bool = False) -> Dict[str
         return {}
 
     img_dir = str(PROJECT_ROOT / 'posts' / 'shandian_images')
-
-    # 清空上次的图片
-    if Path(img_dir).exists():
-        shutil.rmtree(img_dir)
     Path(img_dir).mkdir(parents=True, exist_ok=True)
+
+    # 检查已有图片，跳过已下载的话题
+    existing = {}
+    if Path(img_dir).exists():
+        for f in Path(img_dir).iterdir():
+            if f.suffix.lower() in ('.jpg', '.jpeg', '.png', '.gif', '.webp'):
+                # 文件名还原话题名（_替换回原字符不好还原，用映射表）
+                existing[f.stem] = str(f)
+
+    # 中文→英文关键词映射（Pexels搜图用英文效果更好）
+    pexels_queries = {
+        '梅西登顶世界杯历史射手王': 'Messi World Cup goal celebration',
+        '你的世界杯入坑之战是哪一场': 'World Cup football fans stadium',
+        '马斯克身家超过140个国家GDP': 'Elon Musk SpaceX rocket launch',
+    }
 
     logger.info(f"🔍 搜索图片: 共 {len(unique_topics)} 个话题...")
 
     topic_images = {}
     for i, topic in enumerate(unique_topics, 1):
+        # 检查是否已有图片
+        safe_name = re.sub(r'[^\w一-鿿]', '_', topic)[:30]
+        if safe_name in existing:
+            logger.info(f"  [{i}/{len(unique_topics)}] 已有图片: {topic} → 复用")
+            topic_images[topic] = [existing[safe_name]]
+            continue
+
         logger.info(f"  [{i}/{len(unique_topics)}] 搜索: {topic}")
-        img_path = search_and_download(topic, img_dir)
+        pexels_q = pexels_queries.get(topic)  # 英文关键词
+        img_path = search_and_download(
+            topic, img_dir,
+            skip_web=pexels_only,
+            pexels_query=pexels_q,
+        )
         topic_images[topic] = [img_path] if img_path else []
         time.sleep(0.5)  # 避免请求过快
 
@@ -199,6 +221,7 @@ def run(
     dry_run: bool = False,
     limit: int = 10,
     skip_image: bool = False,
+    pexels_only: bool = False,
 ):
     """闪电观察者主流程"""
     logger.info("=" * 55)
@@ -240,7 +263,7 @@ def run(
         logger.warning(f"⚠️ 话题数超过限制，只保留前 {limit} 个")
 
     # 搜索图片
-    topic_images = search_topic_images(posts, skip_image)
+    topic_images = search_topic_images(posts, skip_image, pexels_only)
 
     # 配对图片
     for post in posts:
@@ -302,18 +325,20 @@ if __name__ == "__main__":
     cli.add_argument("--dry-run", action="store_true", help="干跑模式")
     cli.add_argument("--limit", type=int, default=10, help="最多处理几个话题（默认10）")
     cli.add_argument("--no-image", action="store_true", help="跳过图片搜索")
+    cli.add_argument("--pexels-only", action="store_true", help="只用Pexels搜图（跳过网页搜图，避免Playwright冲突）")
 
     args = cli.parse_args()
 
     if not args.posts and not args.file:
         # 交互模式
-        success = run(dry_run=args.dry_run, limit=args.limit, skip_image=args.no_image)
+        success = run(dry_run=args.dry_run, limit=args.limit, skip_image=args.no_image, pexels_only=args.pexels_only)
     elif args.file:
         success = run(
             file_path=args.file,
             dry_run=args.dry_run,
             limit=args.limit,
             skip_image=args.no_image,
+            pexels_only=args.pexels_only,
         )
     else:
         success = run(
@@ -321,6 +346,7 @@ if __name__ == "__main__":
             dry_run=args.dry_run,
             limit=args.limit,
             skip_image=args.no_image,
+            pexels_only=args.pexels_only,
         )
 
     sys.exit(0 if success else 1)

@@ -340,11 +340,28 @@ def run(
 
     poster.disconnect()
 
+    # 发帖成功后自动清理图片目录
+    if result['failed'] == 0:
+        _cleanup_images()
+
     logger.info("=" * 55)
     logger.info(f"🏁 完成: 成功 {result['success']}, 失败 {result['failed']}")
     logger.info("=" * 55)
 
     return result['failed'] == 0
+
+
+def _cleanup_images():
+    """发帖成功后自动清理 posts/images/ 目录中的图片"""
+    img_dir = PROJECT_ROOT / 'posts' / 'images'
+    if not img_dir.exists():
+        return
+    images = [f for f in img_dir.iterdir()
+              if f.suffix.lower() in ('.jpg', '.jpeg', '.png', '.gif', '.webp')]
+    if images:
+        for f in images:
+            f.unlink()
+        logger.info(f"🧹 已清理 {len(images)} 张图片")
 
 
 # ========== 入口 ==========
