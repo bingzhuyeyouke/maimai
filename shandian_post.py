@@ -100,6 +100,18 @@ def parse_shandian(text: str) -> List[Dict]:
             continue
         topic_name = topic_match.group(1).strip()
 
+        # 去掉"话题X："前缀（如"话题一：大众汽车"→"大众汽车"）
+        topic_name = re.sub(r'^话题[一二三四五六七八九十]+[：:]\s*', '', topic_name).strip()
+
+        # 话题名取逗号前的核心关键词（脉脉话题通常是短词）
+        if '，' in topic_name:
+            topic_name = topic_name.split('，')[0].strip()
+        if '、' in topic_name:
+            topic_name = topic_name.split('、')[0].strip()
+
+        if not topic_name:
+            continue
+
         # 去掉话题标题行，剩余为文章内容
         content_block = block[topic_match.end():].strip()
 
