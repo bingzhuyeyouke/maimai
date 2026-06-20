@@ -366,7 +366,7 @@ def _cleanup_images():
 
 
 def _cleanup_batch_images(file_path: str):
-    """发帖成功后自动清理对应 batch 文件夹中的图片，方便下次存放"""
+    """发帖成功后自动清理对应 batch 文件夹中的图片和文案，方便下次存放"""
     if not file_path:
         return
     # 从文件路径推断 batch 目录（如 posts/batch3/content.txt → posts/batch3/）
@@ -375,12 +375,17 @@ def _cleanup_batch_images(file_path: str):
         content_path = PROJECT_ROOT / content_path
     if content_path.parent.name.startswith('batch') and content_path.parent.exists():
         batch_dir = content_path.parent
+        # 清理图片
         images = [f for f in batch_dir.iterdir()
                   if f.suffix.lower() in ('.jpg', '.jpeg', '.png', '.gif', '.webp')]
         if images:
             for f in images:
                 f.unlink()
             logger.info(f"🧹 已清理 {batch_dir.name}/ 下 {len(images)} 张图片")
+        # 清理文案文件
+        if content_path.exists():
+            content_path.unlink()
+            logger.info(f"🧹 已清理 {batch_dir.name}/ 下文案文件")
 
 
 # ========== 入口 ==========
