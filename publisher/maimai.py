@@ -568,7 +568,7 @@ class MaimaiPoster:
         logger.info(f"  已在弹出搜索框输入: {topic}")
         time.sleep(2)
 
-        # 3. 点击搜索结果
+        # 3. 点击搜索结果（精确匹配：话题名后必须紧跟数字"XX条帖子"，而非"，其他文字"）
         selected = page.evaluate('''(topic) => {
             const all = document.querySelectorAll('div');
             let exactRow = null;
@@ -584,7 +584,12 @@ class MaimaiPoster:
                 if (!cls.includes('cursor-pointer') || rect.y < 300 || rect.height < 30 || rect.height > 60) continue;
                 if (!t.includes(topic)) continue;
 
-                if (t.startsWith(topic)) {
+                // 精确匹配：话题名后紧跟数字（如"我来爆个料130721条帖子"）
+                // 排除话题名后跟逗号等文字的（如"我来爆个料，进来瞅瞅22条帖子"）
+                const afterTopic = t.substring(topic.length);
+                const isExactTopic = t.startsWith(topic) && (afterTopic.length === 0 || /^\d/.test(afterTopic));
+
+                if (isExactTopic) {
                     if (t.length < exactLen) { exactLen = t.length; exactRow = el; }
                 } else {
                     if (t.length < prefixLen) { prefixLen = t.length; prefixRow = el; }
